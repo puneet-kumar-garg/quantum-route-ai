@@ -65,6 +65,14 @@ export interface QuantumResult {
   qaoa_layers: number;
 }
 
+export interface PriorityRoute {
+  path: string[];
+  path_coords: [number, number][];
+  distance: number;
+  time: number;
+  cost: number;
+}
+
 export interface OptimizationResult {
   id: number;
   request: RouteOptimizationRequest;
@@ -72,6 +80,11 @@ export interface OptimizationResult {
   dijkstra: AlgorithmResult;
   astar: AlgorithmResult;
   bellman_ford: AlgorithmResult;
+  priority_routes: {
+    shortest: PriorityRoute;
+    least_fuel: PriorityRoute;
+    balanced: PriorityRoute;
+  };
   traffic_prediction: TrafficPrediction;
   nodes: RouteNode[];
   edges: RouteEdge[];

@@ -23,7 +23,7 @@ const schema = z.object({
   traffic_density: z.enum(['low', 'medium', 'high']),
   weather: z.enum(['sunny', 'rain', 'fog']),
   road_condition: z.enum(['good', 'moderate', 'poor']),
-  optimization_priority: z.enum(['fastest', 'shortest', 'least_fuel', 'least_traffic', 'balanced']),
+  optimization_priority: z.enum(['shortest', 'least_fuel', 'balanced']),
   time_of_day: z.string(),
   qaoa_layers: z.number().min(1).max(5),
   traffic_overlay: z.boolean(),
@@ -50,6 +50,7 @@ const VEHICLE_OPTIONS = [
 export default function OptimizePage() {
   const [result, setResult] = useState<OptimizationResult | null>(null);
   const [vehicleSpeed, setVehicleSpeed] = useState(1);
+  const [submittedValues, setSubmittedValues] = useState<Partial<FormData> | null>(null);
 
   const { register, handleSubmit, watch, reset, setValue, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -60,7 +61,7 @@ export default function OptimizePage() {
       traffic_density: 'high',
       weather: 'rain',
       road_condition: 'moderate',
-      optimization_priority: 'fastest',
+      optimization_priority: 'shortest',
       time_of_day: '09:00',
       qaoa_layers: 2,
       traffic_overlay: false,
@@ -70,11 +71,23 @@ export default function OptimizePage() {
 
   const mutation = useMutation({
     mutationFn: (data: RouteOptimizationRequest) => routeService.optimize(data),
-    onSuccess: (data) => setResult(data),
+    onSuccess: (data, vars) => {
+      setResult(data);
+      setSubmittedValues(vars as unknown as FormData);
+    },
   });
 
   const onSubmit = (data: FormData) => mutation.mutate(data as unknown as RouteOptimizationRequest);
   const fv = watch();
+
+  const isStale = result && submittedValues && (
+    fv.vehicle_type !== submittedValues.vehicle_type ||
+    fv.traffic_density !== submittedValues.traffic_density ||
+    fv.weather !== submittedValues.weather ||
+    fv.road_condition !== submittedValues.road_condition ||
+    fv.source !== submittedValues.source ||
+    fv.destination !== submittedValues.destination
+  );
 
   return (
     <div className="space-y-6">
@@ -188,10 +201,8 @@ export default function OptimizePage() {
                   {...register('optimization_priority')}
                   label="Optimization Priority"
                   options={[
-                    { value: 'fastest', label: '⚡ Fastest Route' },
-                    { value: 'shortest', label: '📏 Shortest Route' },
+                    { value: 'shortest', label: '📍 Shortest Route' },
                     { value: 'least_fuel', label: '⛽ Least Fuel' },
-                    { value: 'least_traffic', label: '🚦 Least Traffic' },
                     { value: 'balanced', label: '⚖️ Balanced' },
                   ]}
                 />
@@ -280,10 +291,16 @@ export default function OptimizePage() {
                     {mutation.isPending ? 'Optimizing...' : 'Optimize Route'}
                   </Button>
                   <Button type="button" variant="outline" size="icon"
-                    onClick={() => { reset(); setResult(null); }}>
+                    onClick={() => { reset(); setResult(null); setSubmittedValues(null); }}>
                     <RotateCcw className="w-4 h-4" />
                   </Button>
                 </div>
+
+                {isStale && (
+                  <p className="text-xs text-amber-400 text-center bg-amber-400/10 border border-amber-400/30 rounded-lg px-3 py-2">
+                    ⚠️ Parameters changed — click <b>Optimize Route</b> to update results
+                  </p>
+                )}
 
                 {mutation.isError && (
                   <p className="text-xs text-rose-400 text-center">
@@ -306,6 +323,7 @@ export default function OptimizePage() {
             animateVehicle={fv.animate_vehicle}
             showTrafficOverlay={fv.traffic_overlay}
             vehicleSpeed={vehicleSpeed}
+            activePriority={fv.optimization_priority as 'shortest' | 'least_fuel' | 'balanced'}
           />
         </motion.div>
       </div>

@@ -138,6 +138,34 @@ CHANDIGARH_EDGES: List[Tuple] = [
     ("Chandigarh University","Kharar",             7.2, 15,  "highway",  4, 60),
     ("Chandigarh University","Punjab University", 18.5, 35,  "highway",  4, 60),
     ("Chandigarh University","Mohali IT Park",    14.0, 28,  "highway",  4, 60),
+
+    # ── Extra cross-connections for genuine alternative routes ──
+    ("Sukhna Lake",       "Sector 35 Market",      6.5, 18,  "arterial", 4, 50),
+    ("Rock Garden",       "Leisure Valley",         2.5,  8,  "local",    2, 30),
+    ("Sector 22 Market",  "ISBT Sector 43",         3.5, 11,  "arterial", 4, 50),
+    ("Sector 22 Market",  "Elante Mall",            4.2, 13,  "arterial", 4, 50),
+    ("Sector 17 Plaza",   "Leisure Valley",         2.0,  7,  "arterial", 4, 50),
+    ("Sector 8 Market",   "Leisure Valley",         2.8,  9,  "local",    2, 30),
+    ("PGI Hospital",      "Punjab University",      1.6,  5,  "local",    2, 30),
+    ("PGI Hospital",      "Sector 22 Market",       4.0, 13,  "arterial", 4, 50),
+    ("Sector 35 Market",  "Chandigarh Railway",     4.5, 14,  "arterial", 4, 50),
+    ("Elante Mall",       "Sector 35 Market",       2.3,  7,  "arterial", 4, 50),
+    ("Chandigarh Railway","Elante Mall",            2.6,  8,  "arterial", 4, 50),
+    ("Mohali IT Park",    "ISBT Sector 43",         6.0, 15,  "highway",  6, 80),
+    ("Punjab University", "Sector 22 Market",       3.2, 10,  "arterial", 4, 50),
+    ("Punjab University", "Sector 17 Plaza",        4.2, 13,  "arterial", 4, 50),
+    ("Leisure Valley",    "Sector 22 Market",       3.0,  9,  "arterial", 4, 50),
+    ("Panchkula Sector 5","Rock Garden",            7.0, 18,  "highway",  4, 60),
+    ("Sector 8 Market",   "Sector 22 Market",       2.0,  7,  "arterial", 4, 50),
+    ("ISBT Sector 43",    "Sector 35 Market",       3.0,  9,  "arterial", 4, 50),
+    # Highway bypass routes — longer distance but much lower fuel cost
+    ("Sukhna Lake",       "Chandigarh Railway",    10.5, 16,  "highway",  6, 80),  # via Madhya Marg bypass
+    ("Sukhna Lake",       "ISBT Sector 43",         9.8, 15,  "highway",  6, 80),  # via VIP Road
+    ("Rock Garden",       "ISBT Sector 43",         8.5, 13,  "highway",  6, 80),  # via VIP Road
+    ("Sector 17 Plaza",   "Elante Mall",            7.2, 11,  "highway",  6, 80),  # via Madhya Marg
+    ("Punjab University", "Elante Mall",            9.5, 14,  "highway",  6, 80),  # via Madhya Marg
+    ("Sector 8 Market",   "ISBT Sector 43",         6.5, 10,  "highway",  6, 80),  # via VIP Road
+    ("Chandigarh Railway","ISBT Sector 43",         2.4,  8,  "arterial", 4, 50),
 ]
 
 # ── Per-road peak-hour congestion multipliers (hour → multiplier) ─────────────
@@ -171,11 +199,13 @@ ROAD_CONDITION_IMPACT = {
 }
 
 # ── Fuel consumption per km by vehicle + road type (litres/km) ───────────────
+# Highway = efficient cruise; arterial = stop-and-go; local = worst
+# Large gap ensures fuel-optimal path genuinely differs from shortest-distance path
 FUEL_RATE = {
-    "car":       {"highway": 0.060, "arterial": 0.075, "local": 0.090},
-    "bike":      {"highway": 0.025, "arterial": 0.030, "local": 0.035},
-    "truck":     {"highway": 0.180, "arterial": 0.220, "local": 0.280},
-    "emergency": {"highway": 0.090, "arterial": 0.110, "local": 0.130},
+    "car":       {"highway": 0.050, "arterial": 0.140, "local": 0.200},
+    "bike":      {"highway": 0.020, "arterial": 0.055, "local": 0.080},
+    "truck":     {"highway": 0.160, "arterial": 0.380, "local": 0.500},
+    "emergency": {"highway": 0.080, "arterial": 0.190, "local": 0.250},
 }
 
 FUEL_PRICE_PER_LITRE = 96.0  # INR, Chandigarh petrol price
@@ -216,9 +246,9 @@ def _edge_fuel(dist_km: float, road_type: str, vehicle: str,
                traffic_density: str, road_cond: str) -> float:
     """Fuel cost in INR for one edge."""
     base_rate = FUEL_RATE[vehicle][road_type]
-    # Stop-and-go in high traffic burns more fuel
-    traffic_fuel = {"low": 1.0, "medium": 1.15, "high": 1.35}[traffic_density]
-    road_fuel = {"good": 1.0, "moderate": 1.10, "poor": 1.25}[road_cond]
+    # Stop-and-go in high traffic burns significantly more fuel on city roads
+    traffic_fuel = {"low": 1.0, "medium": 1.25, "high": 1.60}[traffic_density]
+    road_fuel = {"good": 1.0, "moderate": 1.15, "poor": 1.35}[road_cond]
     litres = dist_km * base_rate * traffic_fuel * road_fuel
     return round(litres * FUEL_PRICE_PER_LITRE, 2)
 
@@ -274,32 +304,31 @@ def _score(stats: Dict, priority: str) -> float:
     """Single scalar score for a path given priority."""
     d, t, f = stats["distance"], stats["time"], stats["fuel_cost"]
     weights = {
-        "fastest":      (0.10, 0.80, 0.10),
-        "shortest":     (0.80, 0.10, 0.10),
-        "least_fuel":   (0.10, 0.20, 0.70),
-        "least_traffic":(0.15, 0.70, 0.15),
-        "balanced":     (0.33, 0.34, 0.33),
+        "shortest":   (0.85, 0.10, 0.05),
+        "least_fuel": (0.10, 0.15, 0.75),
+        "balanced":   (0.33, 0.34, 0.33),
     }
     wd, wt, wf = weights.get(priority, (0.33, 0.34, 0.33))
-    # Normalise roughly: dist in km (5-30), time in min (5-60), fuel in INR (5-200)
     return wd * (d / 20) + wt * (t / 30) + wf * (f / 100)
+
+
+def _balanced_weight(u: str, v: str, data: Dict) -> float:
+    """Composite weight for balanced priority — normalised sum."""
+    return (data.get("distance", 5) / 20) * 0.33 + \
+           (data.get("time", 10) / 30) * 0.34 + \
+           (data.get("fuel_cost", 20) / 100) * 0.33
 
 
 def dijkstra_solve(G: nx.DiGraph, source: str, destination: str,
                    priority: str = "balanced") -> Dict:
-    """Dijkstra — optimises the priority-specific weight."""
+    """Dijkstra — optimises the given priority weight."""
     t0 = time.perf_counter()
-
-    weight_key = {
-        "fastest":       "time",
-        "shortest":      "distance",
-        "least_fuel":    "fuel_cost",
-        "least_traffic": "time",
-        "balanced":      "time",
-    }.get(priority, "time")
-
+    weight_key = {"shortest": "distance", "least_fuel": "fuel_cost", "balanced": None}.get(priority, "distance")
     try:
-        path = nx.dijkstra_path(G, source, destination, weight=weight_key)
+        if weight_key:
+            path = nx.dijkstra_path(G, source, destination, weight=weight_key)
+        else:
+            path = nx.dijkstra_path(G, source, destination, weight=_balanced_weight)
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         path = [source, destination]
 
@@ -321,28 +350,18 @@ def dijkstra_solve(G: nx.DiGraph, source: str, destination: str,
 
 def astar_solve(G: nx.DiGraph, source: str, destination: str,
                 priority: str = "balanced") -> Dict:
-    """A* — uses haversine heuristic, optimises time."""
+    """A* — always optimises fuel cost with fuel-based heuristic."""
     t0 = time.perf_counter()
 
-    weight_key = {
-        "fastest":       "time",
-        "shortest":      "distance",
-        "least_fuel":    "fuel_cost",
-        "least_traffic": "time",
-        "balanced":      "time",
-    }.get(priority, "time")
-
-    def heuristic(u, v):
-        n1 = CHANDIGARH_NODES.get(u, {})
-        n2 = CHANDIGARH_NODES.get(v, {})
+    def heuristic_fuel(u, v):
+        n1, n2 = CHANDIGARH_NODES.get(u, {}), CHANDIGARH_NODES.get(v, {})
         if not n1 or not n2:
             return 0
-        km = _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"])
-        # Optimistic estimate: assume 60 km/h free-flow
-        return km / 60 * 60  # minutes
+        # Optimistic: best-case highway fuel rate
+        return _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"]) * 0.055 * FUEL_PRICE_PER_LITRE
 
     try:
-        path = nx.astar_path(G, source, destination, heuristic=heuristic, weight=weight_key)
+        path = nx.astar_path(G, source, destination, heuristic=heuristic_fuel, weight="fuel_cost")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         path = [source, destination]
 
@@ -364,10 +383,10 @@ def astar_solve(G: nx.DiGraph, source: str, destination: str,
 
 def bellman_ford_solve(G: nx.DiGraph, source: str, destination: str,
                        priority: str = "balanced") -> Dict:
-    """Bellman-Ford — optimises distance."""
+    """Bellman-Ford — always optimises travel time."""
     t0 = time.perf_counter()
     try:
-        _, path = nx.single_source_bellman_ford(G, source, destination, weight="distance")
+        _, path = nx.single_source_bellman_ford(G, source, destination, weight="time")
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         path = [source, destination]
 
@@ -387,13 +406,15 @@ def bellman_ford_solve(G: nx.DiGraph, source: str, destination: str,
     }
 
 
-def _fast_candidates(G: nx.DiGraph, source: str, destination: str) -> List[List[str]]:
-    """Generate up to 4 structurally different candidate paths using
-    multiple Dijkstra runs on different edge weights. O(E log V) each."""
+def _fast_candidates(G: nx.DiGraph, source: str, destination: str,
+                     priority: str = "balanced") -> List[List[str]]:
+    """Generate structurally different candidate paths for QAOA.
+    Primary weight matches the priority; others provide diversity."""
+    primary = {"shortest": "distance", "least_fuel": "fuel_cost", "balanced": "time"}.get(priority, "time")
     candidates: List[List[str]] = []
     seen: set = set()
 
-    for weight in ("time", "distance", "fuel_cost"):
+    for weight in (primary, "distance", "fuel_cost", "time", _balanced_weight):
         try:
             p = nx.dijkstra_path(G, source, destination, weight=weight)
             key = tuple(p)
@@ -403,21 +424,6 @@ def _fast_candidates(G: nx.DiGraph, source: str, destination: str) -> List[List[
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             pass
 
-    # A* with haversine heuristic as 4th candidate
-    try:
-        def h(u, v):
-            n1, n2 = CHANDIGARH_NODES.get(u, {}), CHANDIGARH_NODES.get(v, {})
-            if not n1 or not n2:
-                return 0
-            return _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"]) / 60 * 60
-        p = nx.astar_path(G, source, destination, heuristic=h, weight="time")
-        key = tuple(p)
-        if key not in seen:
-            seen.add(key)
-            candidates.append(p)
-    except (nx.NetworkXNoPath, nx.NodeNotFound):
-        pass
-
     return candidates if candidates else [[source, destination]]
 
 
@@ -425,17 +431,14 @@ def qaoa_solve(G: nx.DiGraph, source: str, destination: str,
                priority: str = "balanced", qaoa_layers: int = 2) -> Dict:
     """
     QAOA — encodes top-K candidate paths as QUBO variables.
-    Uses fast multi-objective Dijkstra for candidate generation (no exponential enumeration).
+    The priority directly determines which candidate is selected.
     """
     t0 = time.perf_counter()
 
-    # Fast O(E log V) candidate generation
-    candidates = _fast_candidates(G, source, destination)
-
+    candidates = _fast_candidates(G, source, destination, priority)
     if not candidates:
         candidates = [[source, destination]]
 
-    # Compute full stats for each candidate
     all_stats = [_path_stats(G, p) for p in candidates]
     scores    = [_score(s, priority) for s in all_stats]
 

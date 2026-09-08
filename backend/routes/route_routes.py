@@ -70,6 +70,20 @@ def optimize_route(
         r["path_coords"] = get_path_coords(r["path"], nodes)
     quantum["path_coords"] = get_path_coords(quantum["path"], nodes)
 
+    # Compute one route per priority — use the algorithm that genuinely optimises each objective
+    # shortest → Dijkstra on distance, least_fuel → A* on fuel_cost, balanced → Bellman-Ford on time
+    priority_solvers = {
+        "shortest":   lambda: dijkstra_solve(G, req.source, req.destination, "shortest"),
+        "least_fuel": lambda: astar_solve(G, req.source, req.destination, "least_fuel"),
+        "balanced":   lambda: bellman_ford_solve(G, req.source, req.destination, "balanced"),
+    }
+    priority_routes = {}
+    for p, solver in priority_solvers.items():
+        r = solver()
+        r["path_coords"] = get_path_coords(r["path"], nodes)
+        priority_routes[p] = {"path": r["path"], "path_coords": r["path_coords"],
+                              "distance": r["distance"], "time": r["time"], "cost": r["cost"]}
+
     # ML traffic prediction using actual parameters
     traffic_pred = predict_traffic(
         hour=hour,
@@ -101,6 +115,7 @@ def optimize_route(
         dijkstra=AlgorithmResult(**dijkstra),
         astar=AlgorithmResult(**astar),
         bellman_ford=AlgorithmResult(**bellman),
+        priority_routes=priority_routes,
         traffic_prediction=TrafficPrediction(**traffic_pred),
         nodes=[RouteNode(**n) for n in node_list],
         edges=edge_list,

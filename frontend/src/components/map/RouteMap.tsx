@@ -14,11 +14,12 @@ interface Props {
   animateVehicle?: boolean;
   showTrafficOverlay?: boolean;
   vehicleSpeed?: number;
+  activePriority?: 'shortest' | 'least_fuel' | 'balanced';
 }
 
 const CITY_CENTER: [number, number] = [30.7414, 76.7842];
 
-export function RouteMap({ result, isLoading, animateVehicle = true, showTrafficOverlay = false, vehicleSpeed = 1 }: Props) {
+export function RouteMap({ result, isLoading, animateVehicle = true, showTrafficOverlay = false, vehicleSpeed = 1, activePriority = 'balanced' }: Props) {
   const mapRef        = useRef<any>(null);
   const containerRef  = useRef<HTMLDivElement>(null);
   const layersRef     = useRef<any[]>([]);
@@ -78,10 +79,12 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
   useEffect(() => {
     if (!mapRef.current || !result || !mapReady) return;
 
+    const priorityRoute = result.priority_routes?.[activePriority];
     const routeDefs = [
       { key: 'dijkstra', coords: result.dijkstra.path_coords as [number, number][], color: '#3b82f6', dash: '8 5', w: 3, label: 'Dijkstra', dist: result.dijkstra.distance },
       { key: 'astar',    coords: result.astar.path_coords    as [number, number][], color: '#06b6d4', dash: '4 4', w: 3, label: 'A*',       dist: result.astar.distance },
-      { key: 'quantum',  coords: result.quantum.path_coords  as [number, number][], color: '#10b981', dash: '',    w: 5, label: 'QAOA',     dist: result.quantum.distance },
+      { key: 'quantum',  coords: result.quantum.path_coords  as [number, number][], color: '#8b5cf6', dash: '6 3', w: 3, label: 'QAOA',     dist: result.quantum.distance },
+      { key: 'priority', coords: (priorityRoute?.path_coords ?? result.quantum.path_coords) as [number, number][], color: '#10b981', dash: '', w: 5, label: activePriority === 'shortest' ? '📍 Shortest' : activePriority === 'least_fuel' ? '⛽ Least Fuel' : '⚖️ Balanced', dist: priorityRoute?.distance ?? result.quantum.distance },
     ];
 
     import('leaflet').then((L) => {
@@ -119,7 +122,8 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
         result.nodes.forEach(node => {
           const isSrc    = node.name === result.request.source;
           const isDest   = node.name === result.request.destination;
-          const isOnPath = result.quantum.path.includes(node.name);
+          const priorityPath = result.priority_routes?.[activePriority]?.path ?? result.quantum.path;
+          const isOnPath = priorityPath.includes(node.name);
           if (isSrc || isDest) {
             const color = isSrc ? '#10b981' : '#ef4444';
             add(L.marker([node.lat, node.lng], {
@@ -161,24 +165,23 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
       if (allStraight.length > 1) mapRef.current.fitBounds(L.latLngBounds(allStraight), { padding: [50, 50] });
 
       drawMarkers(result.quantum.path_coords as [number, number][]);
-      startVehicle(result.quantum.path_coords as [number, number][]);
+      const priorityCoords = (result.priority_routes?.[activePriority]?.path_coords ?? result.quantum.path_coords) as [number, number][];
+      startVehicle(priorityCoords);
 
       // ── Phase 2: upgrade polylines to road geometry in background ──
       Promise.all(routeDefs.map(r => getRoadPath(r.coords))).then(roadCoords => {
         if (!mapRef.current) return;
-        // Replace each polyline's geometry with road-snapped coords
         routeDefs.forEach((r, i) => {
           const pl = polylineRefs[i];
           const coords = roadCoords[i];
           if (pl && coords?.length) pl.setLatLngs(coords);
         });
-        // Restart vehicle on road geometry
         cancelAnimationFrame(animRef.current);
         if (vehicleRef.current) { try { mapRef.current.removeLayer(vehicleRef.current); } catch {} vehicleRef.current = null; }
-        startVehicle(roadCoords[2]);
+        startVehicle(roadCoords[3]); // index 3 = priority route
       });
     });
-  }, [result, mapReady, activeRoute, animateVehicle, showTrafficOverlay]);
+  }, [result, mapReady, activeRoute, animateVehicle, showTrafficOverlay, activePriority]);
 
   return (
     <Card glass className="h-full">
@@ -193,13 +196,14 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
             {result && (
               <div className="flex items-center gap-1 p-1 rounded-lg bg-background border border-border">
                 {([
-                  { key: 'quantum',  label: 'QAOA',     color: 'bg-emerald-500' },
+                  { key: 'priority', label: activePriority === 'shortest' ? '📍 Shortest' : activePriority === 'least_fuel' ? '⛽ Fuel' : '⚖️ Balanced', color: 'bg-emerald-500' },
                   { key: 'dijkstra', label: 'Dijkstra', color: 'bg-blue-500' },
                   { key: 'astar',    label: 'A*',        color: 'bg-cyan-500' },
+                  { key: 'quantum',  label: 'QAOA',      color: 'bg-purple-500' },
                 ] as const).map(r => (
                   <button
                     key={r.key}
-                    onClick={() => setActiveRoute(r.key)}
+                    onClick={() => setActiveRoute(r.key as any)}
                     className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all ${
                       activeRoute === r.key ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'
                     }`}
@@ -255,7 +259,7 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
             className="absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 pointer-events-none"
           >
             {[
-              { label: 'QAOA',     dist: result.quantum.distance,  time: result.quantum.time,  color: 'bg-emerald-500/90' },
+              { label: activePriority === 'shortest' ? '📍 Shortest' : activePriority === 'least_fuel' ? '⛽ Least Fuel' : '⚖️ Balanced', dist: result.priority_routes?.[activePriority]?.distance ?? result.quantum.distance, time: result.priority_routes?.[activePriority]?.time ?? result.quantum.time, color: 'bg-emerald-500/90' },
               { label: 'Dijkstra', dist: result.dijkstra.distance, time: result.dijkstra.time, color: 'bg-blue-500/90' },
               { label: 'A*',       dist: result.astar.distance,    time: result.astar.time,    color: 'bg-cyan-500/90' },
             ].map(r => (

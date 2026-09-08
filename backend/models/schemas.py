@@ -89,6 +89,7 @@ class OptimizationResponse(BaseModel):
     dijkstra: AlgorithmResult
     astar: AlgorithmResult
     bellman_ford: AlgorithmResult
+    priority_routes: dict  # {shortest, least_fuel, balanced} each with path + path_coords
     traffic_prediction: TrafficPrediction
     nodes: List[RouteNode]
     edges: List[Any]
