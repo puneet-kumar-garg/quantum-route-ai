@@ -179,9 +179,22 @@ PEAK_HOUR_CONGESTION = {
 # ── Vehicle speed multipliers per road type ───────────────────────────────────
 VEHICLE_SPEED = {
     "car":       {"highway": 1.00, "arterial": 1.00, "local": 1.00},
-    "bike":      {"highway": 0.75, "arterial": 0.90, "local": 1.10},  # bikes slower on highway
-    "truck":     {"highway": 0.85, "arterial": 0.70, "local": 0.60},  # trucks slow on local
-    "emergency": {"highway": 1.40, "arterial": 1.35, "local": 1.20},  # emergency faster
+    "bike":      {"highway": 0.70, "arterial": 0.95, "local": 1.15},
+    "truck":     {"highway": 0.80, "arterial": 0.60, "local": 0.45},
+    "emergency": {"highway": 1.80, "arterial": 1.50, "local": 1.10},
+}
+
+# ── Road-type penalty multiplier on TIME for vehicles that avoid certain roads ─
+# Makes the graph topology effectively different per vehicle type
+VEHICLE_ROAD_PENALTY = {
+    # emergency: massively penalise local roads → always routes via highway/arterial
+    "emergency": {"highway": 1.0, "arterial": 1.0, "local": 8.0},
+    # truck: heavily penalise local roads (weight limits, narrow lanes)
+    "truck":     {"highway": 1.0, "arterial": 1.2, "local": 6.0},
+    # bike: penalise highways (unsafe), prefer local/arterial
+    "bike":      {"highway": 4.0, "arterial": 1.0, "local": 1.0},
+    # car: no penalty
+    "car":       {"highway": 1.0, "arterial": 1.0, "local": 1.0},
 }
 
 # ── Weather impact per road type ──────────────────────────────────────────────
@@ -223,23 +236,13 @@ def _edge_time(base_time: float, road_type: str, vehicle: str,
                weather: str, road_cond: str, hour: int,
                traffic_density: str) -> float:
     """Compute realistic travel time for one edge."""
-    # 1. Peak-hour congestion
-    peak = PEAK_HOUR_CONGESTION.get(road_type, {}).get(hour, 1.0)
-
-    # 2. Traffic density override (user-selected)
+    peak         = PEAK_HOUR_CONGESTION.get(road_type, {}).get(hour, 1.0)
     density_mult = {"low": 0.80, "medium": 1.00, "high": 1.45}[traffic_density]
-
-    # 3. Weather
     weather_mult = WEATHER_IMPACT[weather][road_type]
-
-    # 4. Road condition
-    road_mult = ROAD_CONDITION_IMPACT[road_cond][road_type]
-
-    # 5. Vehicle speed on this road type
-    veh_mult = VEHICLE_SPEED[vehicle][road_type]
-
-    # Combined: time = base × peak × density × weather × road / vehicle_speed
-    return base_time * peak * density_mult * weather_mult * road_mult / veh_mult
+    road_mult    = ROAD_CONDITION_IMPACT[road_cond][road_type]
+    veh_mult     = VEHICLE_SPEED[vehicle][road_type]
+    penalty      = VEHICLE_ROAD_PENALTY[vehicle][road_type]
+    return base_time * peak * density_mult * weather_mult * road_mult * penalty / veh_mult
 
 
 def _edge_fuel(dist_km: float, road_type: str, vehicle: str,

@@ -328,37 +328,35 @@ export default function OptimizePage() {
         </motion.div>
       </div>
 
-      {/* ── QAOA Spinner ── */}
-      {mutation.isPending && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-10 space-y-4"
-        >
-          <div className="relative w-16 h-16">
-            <div className="absolute inset-0 rounded-full border-2 border-purple-500/30 animate-spin" style={{ animationDuration: '3s' }} />
-            <div className="absolute inset-2 rounded-full border-2 border-blue-500/50 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
-            <div className="absolute inset-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-white" />
-            </div>
-          </div>
-          <div className="text-center">
-            <p className="font-semibold">Running QAOA (p={fv.qaoa_layers})</p>
-            <p className="text-sm text-muted-foreground">Solving QUBO on Qiskit Aer Simulator…</p>
-          </div>
-        </motion.div>
-      )}
-
-      {/* ── Results ── */}
-      <AnimatePresence>
-        {result && (
+      <AnimatePresence mode="wait">
+        {mutation.isPending ? (
           <motion.div
+            key="spinner"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="flex flex-col items-center justify-center py-10 space-y-4"
+          >
+            <div className="relative w-16 h-16">
+              <div className="absolute inset-0 rounded-full border-2 border-purple-500/30 animate-spin" style={{ animationDuration: '3s' }} />
+              <div className="absolute inset-2 rounded-full border-2 border-blue-500/50 animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }} />
+              <div className="absolute inset-4 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-white" />
+              </div>
+            </div>
+            <div className="text-center">
+              <p className="font-semibold">Running QAOA (p={fv.qaoa_layers})</p>
+              <p className="text-sm text-muted-foreground">Solving QUBO on Qiskit Aer Simulator…</p>
+            </div>
+          </motion.div>
+        ) : result ? (
+          <motion.div
+            key="results"
             initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }} className="space-y-6"
           >
             <QuantumPanel result={result.quantum} />
             <ComparisonTable result={result} />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );
