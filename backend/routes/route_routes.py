@@ -60,10 +60,10 @@ def optimize_route(
     )
 
     # Each algorithm optimises a different objective → genuinely different paths
-    dijkstra = dijkstra_solve(G, req.source, req.destination, req.optimization_priority)
-    astar    = astar_solve(G, req.source, req.destination, req.optimization_priority)
-    bellman  = bellman_ford_solve(G, req.source, req.destination, req.optimization_priority)
-    quantum  = qaoa_solve(G, req.source, req.destination, req.optimization_priority, qaoa_p)
+    dijkstra = dijkstra_solve(G, req.source, req.destination, req.optimization_priority, req.vehicle_type)
+    astar    = astar_solve(G, req.source, req.destination, req.optimization_priority, req.vehicle_type)
+    bellman  = bellman_ford_solve(G, req.source, req.destination, req.optimization_priority, req.vehicle_type)
+    quantum  = qaoa_solve(G, req.source, req.destination, req.optimization_priority, qaoa_p, req.vehicle_type)
 
     # Attach map coordinates
     for r in [dijkstra, astar, bellman]:
@@ -73,9 +73,9 @@ def optimize_route(
     # Compute one route per priority — use the algorithm that genuinely optimises each objective
     # shortest → Dijkstra on distance, least_fuel → A* on fuel_cost, balanced → Bellman-Ford on time
     priority_solvers = {
-        "shortest":   lambda: dijkstra_solve(G, req.source, req.destination, "shortest"),
-        "least_fuel": lambda: astar_solve(G, req.source, req.destination, "least_fuel"),
-        "balanced":   lambda: bellman_ford_solve(G, req.source, req.destination, "balanced"),
+        "shortest":   lambda: dijkstra_solve(G, req.source, req.destination, "shortest", req.vehicle_type),
+        "least_fuel": lambda: astar_solve(G, req.source, req.destination, "least_fuel", req.vehicle_type),
+        "balanced":   lambda: bellman_ford_solve(G, req.source, req.destination, "balanced", req.vehicle_type),
     }
     priority_routes = {}
     for p, solver in priority_solvers.items():

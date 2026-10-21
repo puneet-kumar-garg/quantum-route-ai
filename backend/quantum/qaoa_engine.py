@@ -169,32 +169,39 @@ CHANDIGARH_EDGES: List[Tuple] = [
 ]
 
 # ── Per-road peak-hour congestion multipliers (hour → multiplier) ─────────────
-# Based on real Chandigarh traffic patterns
 PEAK_HOUR_CONGESTION = {
-    "highway":  {7: 1.3, 8: 1.6, 9: 1.8, 10: 1.4, 17: 1.5, 18: 1.9, 19: 1.7, 20: 1.3},
-    "arterial": {7: 1.4, 8: 1.9, 9: 2.1, 10: 1.6, 17: 1.7, 18: 2.2, 19: 2.0, 20: 1.5},
-    "local":    {7: 1.2, 8: 1.5, 9: 1.7, 10: 1.3, 17: 1.4, 18: 1.8, 19: 1.6, 20: 1.2},
+    "highway":  {7: 1.4, 8: 1.9, 9: 2.1, 10: 1.5, 17: 1.6, 18: 2.3, 19: 2.0, 20: 1.4},
+    "arterial": {7: 1.3, 8: 1.6, 9: 1.8, 10: 1.4, 17: 1.5, 18: 1.9, 19: 1.7, 20: 1.3},
+    "local":    {7: 1.1, 8: 1.3, 9: 1.4, 10: 1.2, 17: 1.2, 18: 1.5, 19: 1.4, 20: 1.1},
+}
+
+# Traffic density multiplier per road type
+# High traffic hits highways hardest (bottlenecks, merging) → forces arterial/local routes
+TRAFFIC_DENSITY_MULT = {
+    "low":    {"highway": 0.75, "arterial": 0.85, "local": 0.90},
+    "medium": {"highway": 1.00, "arterial": 1.00, "local": 1.00},
+    "high":   {"highway": 1.80, "arterial": 1.30, "local": 1.10},
 }
 
 # ── Vehicle speed multipliers per road type ───────────────────────────────────
 VEHICLE_SPEED = {
     "car":       {"highway": 1.00, "arterial": 1.00, "local": 1.00},
-    "bike":      {"highway": 0.70, "arterial": 0.95, "local": 1.15},
-    "truck":     {"highway": 0.80, "arterial": 0.60, "local": 0.45},
-    "emergency": {"highway": 1.80, "arterial": 1.50, "local": 1.10},
+    "bike":      {"highway": 0.85, "arterial": 1.00, "local": 1.10},
+    "truck":     {"highway": 0.85, "arterial": 0.70, "local": 0.55},
+    "emergency": {"highway": 1.60, "arterial": 1.40, "local": 1.20},
 }
 
-# ── Road-type penalty multiplier on TIME for vehicles that avoid certain roads ─
-# Makes the graph topology effectively different per vehicle type
+# ── Road-type preference penalty per vehicle (applied to time weight only) ────
+# Nudges routing without making any road type completely impassable.
+# Bike: mildly discourages highway (unsafe), slightly prefers local.
+# Truck: discourages local (weight/width limits), mildly discourages arterial.
+# Emergency: strongly prefers highway, mildly prefers arterial, avoids local.
+# Car: neutral.
 VEHICLE_ROAD_PENALTY = {
-    # emergency: massively penalise local roads → always routes via highway/arterial
-    "emergency": {"highway": 1.0, "arterial": 1.0, "local": 8.0},
-    # truck: heavily penalise local roads (weight limits, narrow lanes)
-    "truck":     {"highway": 1.0, "arterial": 1.2, "local": 6.0},
-    # bike: penalise highways (unsafe), prefer local/arterial
-    "bike":      {"highway": 4.0, "arterial": 1.0, "local": 1.0},
-    # car: no penalty
-    "car":       {"highway": 1.0, "arterial": 1.0, "local": 1.0},
+    "car":       {"highway": 1.00, "arterial": 1.00, "local": 1.00},
+    "bike":      {"highway": 1.60, "arterial": 1.00, "local": 0.85},
+    "truck":     {"highway": 1.10, "arterial": 1.30, "local": 2.50},
+    "emergency": {"highway": 0.45, "arterial": 0.80, "local": 2.00},
 }
 
 # ── Weather impact per road type ──────────────────────────────────────────────
@@ -235,9 +242,8 @@ def _haversine_km(lat1, lng1, lat2, lng2) -> float:
 def _edge_time(base_time: float, road_type: str, vehicle: str,
                weather: str, road_cond: str, hour: int,
                traffic_density: str) -> float:
-    """Compute realistic travel time for one edge."""
     peak         = PEAK_HOUR_CONGESTION.get(road_type, {}).get(hour, 1.0)
-    density_mult = {"low": 0.80, "medium": 1.00, "high": 1.45}[traffic_density]
+    density_mult = TRAFFIC_DENSITY_MULT[traffic_density][road_type]
     weather_mult = WEATHER_IMPACT[weather][road_type]
     road_mult    = ROAD_CONDITION_IMPACT[road_cond][road_type]
     veh_mult     = VEHICLE_SPEED[vehicle][road_type]
@@ -247,13 +253,13 @@ def _edge_time(base_time: float, road_type: str, vehicle: str,
 
 def _edge_fuel(dist_km: float, road_type: str, vehicle: str,
                traffic_density: str, road_cond: str) -> float:
-    """Fuel cost in INR for one edge."""
     base_rate = FUEL_RATE[vehicle][road_type]
-    # Stop-and-go in high traffic burns significantly more fuel on city roads
-    traffic_fuel = {"low": 1.0, "medium": 1.25, "high": 1.60}[traffic_density]
+    # High traffic on highways = more idling at on-ramps; arterial = stop-and-go
+    traffic_fuel = {"low": {"highway": 1.0, "arterial": 1.0, "local": 1.0},
+                    "medium": {"highway": 1.1, "arterial": 1.2, "local": 1.15},
+                    "high": {"highway": 1.5, "arterial": 1.6, "local": 1.2}}[traffic_density][road_type]
     road_fuel = {"good": 1.0, "moderate": 1.15, "poor": 1.35}[road_cond]
-    litres = dist_km * base_rate * traffic_fuel * road_fuel
-    return round(litres * FUEL_PRICE_PER_LITRE, 2)
+    return round(dist_km * base_rate * traffic_fuel * road_fuel * FUEL_PRICE_PER_LITRE, 2)
 
 
 def build_city_graph(
@@ -323,10 +329,16 @@ def _balanced_weight(u: str, v: str, data: Dict) -> float:
 
 
 def dijkstra_solve(G: nx.DiGraph, source: str, destination: str,
-                   priority: str = "balanced") -> Dict:
-    """Dijkstra — optimises the given priority weight."""
+                   priority: str = "balanced", vehicle: str = "car") -> Dict:
+    """Dijkstra — weight depends on priority AND vehicle type."""
     t0 = time.perf_counter()
-    weight_key = {"shortest": "distance", "least_fuel": "fuel_cost", "balanced": None}.get(priority, "distance")
+    # truck optimises distance (fuel economy), emergency optimises time, others follow priority
+    if vehicle == "truck":
+        weight_key = "distance"
+    elif vehicle == "emergency":
+        weight_key = "time"
+    else:
+        weight_key = {"shortest": "time", "least_fuel": "fuel_cost", "balanced": None}.get(priority, "time")
     try:
         if weight_key:
             path = nx.dijkstra_path(G, source, destination, weight=weight_key)
@@ -352,19 +364,29 @@ def dijkstra_solve(G: nx.DiGraph, source: str, destination: str,
 
 
 def astar_solve(G: nx.DiGraph, source: str, destination: str,
-                priority: str = "balanced") -> Dict:
-    """A* — always optimises fuel cost with fuel-based heuristic."""
+                priority: str = "balanced", vehicle: str = "car") -> Dict:
+    """A* — optimises fuel cost (all vehicles) or time (emergency)."""
     t0 = time.perf_counter()
 
-    def heuristic_fuel(u, v):
-        n1, n2 = CHANDIGARH_NODES.get(u, {}), CHANDIGARH_NODES.get(v, {})
-        if not n1 or not n2:
-            return 0
-        # Optimistic: best-case highway fuel rate
-        return _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"]) * 0.055 * FUEL_PRICE_PER_LITRE
+    if vehicle == "emergency":
+        # Emergency A* also optimises time with time-based heuristic
+        def heuristic(u, v):
+            n1, n2 = CHANDIGARH_NODES.get(u, {}), CHANDIGARH_NODES.get(v, {})
+            if not n1 or not n2:
+                return 0
+            return _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"]) / 1.5  # optimistic min time
+        w = "time"
+    else:
+        def heuristic(u, v):
+            n1, n2 = CHANDIGARH_NODES.get(u, {}), CHANDIGARH_NODES.get(v, {})
+            if not n1 or not n2:
+                return 0
+            min_rate = min(FUEL_RATE.get("car", {}).values())
+            return _haversine_km(n1["lat"], n1["lng"], n2["lat"], n2["lng"]) * min_rate * FUEL_PRICE_PER_LITRE
+        w = "fuel_cost"
 
     try:
-        path = nx.astar_path(G, source, destination, heuristic=heuristic_fuel, weight="fuel_cost")
+        path = nx.astar_path(G, source, destination, heuristic=heuristic, weight=w)
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         path = [source, destination]
 
@@ -385,11 +407,12 @@ def astar_solve(G: nx.DiGraph, source: str, destination: str,
 
 
 def bellman_ford_solve(G: nx.DiGraph, source: str, destination: str,
-                       priority: str = "balanced") -> Dict:
-    """Bellman-Ford — always optimises travel time."""
+                       priority: str = "balanced", vehicle: str = "car") -> Dict:
+    """Bellman-Ford — optimises balanced weight (or distance for truck)."""
     t0 = time.perf_counter()
+    w = "distance" if vehicle == "truck" else "time"
     try:
-        _, path = nx.single_source_bellman_ford(G, source, destination, weight="time")
+        _, path = nx.single_source_bellman_ford(G, source, destination, weight=w)
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         path = [source, destination]
 
@@ -410,14 +433,21 @@ def bellman_ford_solve(G: nx.DiGraph, source: str, destination: str,
 
 
 def _fast_candidates(G: nx.DiGraph, source: str, destination: str,
-                     priority: str = "balanced") -> List[List[str]]:
-    """Generate structurally different candidate paths for QAOA.
-    Primary weight matches the priority; others provide diversity."""
-    primary = {"shortest": "distance", "least_fuel": "fuel_cost", "balanced": "time"}.get(priority, "time")
+                     priority: str = "balanced", vehicle: str = "car") -> List[List[str]]:
+    """Generate structurally different candidate paths for QAOA."""
+    # Primary weight depends on vehicle
+    if vehicle == "truck":
+        weights = ("distance", "fuel_cost", "time", _balanced_weight)
+    elif vehicle == "emergency":
+        weights = ("time", "distance", "fuel_cost", _balanced_weight)
+    elif vehicle == "bike":
+        weights = ("time", "fuel_cost", "distance", _balanced_weight)
+    else:
+        weights = ("time", "fuel_cost", "distance", _balanced_weight)
+
     candidates: List[List[str]] = []
     seen: set = set()
-
-    for weight in (primary, "distance", "fuel_cost", "time", _balanced_weight):
+    for weight in weights:
         try:
             p = nx.dijkstra_path(G, source, destination, weight=weight)
             key = tuple(p)
@@ -426,19 +456,18 @@ def _fast_candidates(G: nx.DiGraph, source: str, destination: str,
                 candidates.append(p)
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             pass
-
     return candidates if candidates else [[source, destination]]
 
 
 def qaoa_solve(G: nx.DiGraph, source: str, destination: str,
-               priority: str = "balanced", qaoa_layers: int = 2) -> Dict:
+               priority: str = "balanced", qaoa_layers: int = 2, vehicle: str = "car") -> Dict:
     """
     QAOA — encodes top-K candidate paths as QUBO variables.
     The priority directly determines which candidate is selected.
     """
     t0 = time.perf_counter()
 
-    candidates = _fast_candidates(G, source, destination, priority)
+    candidates = _fast_candidates(G, source, destination, priority, vehicle)
     if not candidates:
         candidates = [[source, destination]]
 

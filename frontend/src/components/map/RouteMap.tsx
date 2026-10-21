@@ -44,10 +44,13 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
       });
 
       const tileUrl = isDark
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+        ? 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
+        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       tileRef.current = L.tileLayer(tileUrl, {
-        attribution: '© OpenStreetMap © CARTO', maxZoom: 19,
+        attribution: isDark
+          ? '© <a href="https://stadiamaps.com/">Stadia Maps</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          : '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
       }).addTo(map);
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -67,10 +70,13 @@ export function RouteMap({ result, isLoading, animateVehicle = true, showTraffic
     import('leaflet').then((L) => {
       if (tileRef.current) mapRef.current.removeLayer(tileRef.current);
       const tileUrl = isDark
-        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-        : 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+        ? 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
+        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
       tileRef.current = L.tileLayer(tileUrl, {
-        attribution: '© OpenStreetMap © CARTO', maxZoom: 19,
+        attribution: isDark
+          ? '© <a href="https://stadiamaps.com/">Stadia Maps</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          : '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
       }).addTo(mapRef.current);
     });
   }, [isDark, mapReady]);
